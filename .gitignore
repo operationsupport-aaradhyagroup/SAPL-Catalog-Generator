@@ -1,0 +1,12 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+supabase-config.js
+
+# Generated output and local tooling
+dist/
+node_modules/
+tmp/
+.vercel/
+

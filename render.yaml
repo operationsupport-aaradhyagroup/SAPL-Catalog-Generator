@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: aaradhya-seeds-catalogue
+    runtime: static
+    buildCommand: npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
