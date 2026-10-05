@@ -324,8 +324,10 @@ function renderSeedMaster() {
     <div class="table-toolbar">
       <div class="table-filters">
         <div class="search-box">
+          <label class="search-label" for="sm-search">Search products</label>
           <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
-          <input type="text" id="sm-search" placeholder="Search name, code or description" value="${state.searchQuery}" oninput="handleSeedSearch(this.value)" />
+          <input type="search" id="sm-search" placeholder="Name, code or description…" value="${state.searchQuery}" oninput="handleSeedSearch(this)" autocomplete="off" />
+          ${state.searchQuery ? `<button class="search-clear" type="button" onclick="clearSeedSearch()" aria-label="Clear product search" title="Clear search">×</button>` : ''}
         </div>
         <select class="filter-select" id="sm-cat" onchange="handleCatFilter(this.value)">${catOptions}</select>
         <select class="filter-select" id="sm-status" onchange="handleStatusFilter(this.value)">${statusOptions}</select>
@@ -354,7 +356,17 @@ function renderSeedMaster() {
   </div>`;
 }
 
-function handleSeedSearch(val)   { state.searchQuery = val;   render(); }
+function handleSeedSearch(input) {
+  state.searchQuery = input.value;
+  render();
+  requestAnimationFrame(() => {
+    const search = document.getElementById('sm-search');
+    if (!search) return;
+    search.focus();
+    search.setSelectionRange(state.searchQuery.length, state.searchQuery.length);
+  });
+}
+function clearSeedSearch() { state.searchQuery = ''; render(); requestAnimationFrame(() => document.getElementById('sm-search')?.focus()); }
 function handleCatFilter(val)    { state.filterCat   = val;   render(); }
 function handleStatusFilter(val) { state.filterStatus = val;  render(); }
 
