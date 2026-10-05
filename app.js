@@ -51,6 +51,26 @@ let state = {
   builderSearch:'',
 };
 
+function isCatalogueEligible(seed) {
+  return seed?.status === 'PUBLISHED';
+}
+
+// Earlier releases saved a new product in Seed Master only. Repair those
+// legacy additions once, without re-adding products a user has deliberately
+// removed through Catalogue Builder.
+function includeLegacyPublishedAdditions() {
+  const included = new Set(state.catalogue);
+  let added = false;
+  state.seeds.forEach(seed => {
+    if (seed.id.startsWith('SEED-') && isCatalogueEligible(seed) && !included.has(seed.id)) {
+      state.catalogue.push(seed.id);
+      included.add(seed.id);
+      added = true;
+    }
+  });
+  return added;
+}
+
 // The product catalogue is public business content. Its workspace is isolated
 // in its own Supabase table and does not read or modify Bhoodhan records.
 const supabaseClient = window.supabase && window.SUPABASE_CONFIG
@@ -98,11 +118,12 @@ async function hydrateFromSupabase() {
   state.seeds = data.payload.seeds.map(mergeSeedWithCurrentSource);
   state.catalogue = data.payload.catalogue || state.catalogue;
   state.artworks = data.payload.artworks || state.artworks;
+  const repairedLegacyProducts = includeLegacyPublishedAdditions();
   localStorage.setItem('as_seeds', JSON.stringify(state.seeds));
   localStorage.setItem('as_catalogue', JSON.stringify(state.catalogue));
   localStorage.setItem('as_artworks', JSON.stringify(state.artworks));
   render();
-  showToast('Catalogue loaded from Supabase', 'success');
+  showToast(repairedLegacyProducts ? 'New products added to catalogue preview' : 'Catalogue loaded from Supabase', 'success');
   scheduleRemoteSync();
 }
 
@@ -342,11 +363,11 @@ function handleStatusFilter(val) { state.filterStatus = val;  render(); }
 // ──────────────────────────────────────────────────────────────
 function renderCatalogueBuilder() {
   // Ensure catalogue list is in sync with existing seeds
-  const validIds = new Set(state.seeds.map(s => s.id));
+  const validIds = new Set(state.seeds.filter(isCatalogueEligible).map(s => s.id));
   state.catalogue = state.catalogue.filter(id => validIds.has(id));
 
   const catSeeds = state.catalogue.map(id => state.seeds.find(s => s.id === id)).filter(Boolean);
-  const nonCatSeeds = state.seeds.filter(s => !state.catalogue.includes(s.id));
+  const nonCatSeeds = state.seeds.filter(s => isCatalogueEligible(s) && !state.catalogue.includes(s.id));
 
   const q = state.builderSearch.toLowerCase();
   const filtered = q
@@ -597,7 +618,7 @@ function generateIntroSheetsHTML() {
 }
 
 function generateCatalogueSheetsHTML(includeIntro = true) {
-  const catSeeds = state.catalogue.map(id => state.seeds.find(s => s.id === id)).filter(Boolean);
+  const catSeeds = state.catalogue.map(id => state.seeds.find(s => s.id === id)).filter(isCatalogueEligible);
   const byCategory = {};
   catSeeds.forEach(s => {
     if (!byCategory[s.category]) byCategory[s.category] = [];
@@ -905,7 +926,8 @@ function saveSeedFromModal() {
   } else {
     const newSeed = { id: 'SEED-' + Date.now(), ...seedData };
     state.seeds.push(newSeed);
-    showToast('New seed added!', 'success');
+    if (isCatalogueEligible(newSeed)) state.catalogue.push(newSeed.id);
+    showToast(isCatalogueEligible(newSeed) ? 'New seed added to catalogue!' : 'New seed saved as draft!', 'success');
   }
 
   saveState();
@@ -918,6 +940,7 @@ function archiveSeed(id) {
   const seed = state.seeds.find(s => s.id === id);
   if (seed) {
     seed.status = 'ARCHIVED';
+    state.catalogue = state.catalogue.filter(catalogueId => catalogueId !== id);
     saveState();
     showToast('Seed archived', '');
     render();
