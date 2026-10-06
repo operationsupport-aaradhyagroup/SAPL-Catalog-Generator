@@ -549,13 +549,10 @@ function renderPageArtwork() {
         <div class="artwork-page-label">${p.label}</div>
         <div class="artwork-page-name">${p.name}</div>
         <div class="artwork-upload">
-          <label class="file-input-label" for="file-${p.key}">📁 Choose File</label>
-          <input class="file-input-hidden" type="file" id="file-${p.key}" accept="image/*" onchange="handleArtworkUpload('${p.key}', this)" />
-          <span class="file-name-label" id="fname-${p.key}">${customArtwork ? '✓ Custom image set' : 'Standard image active'}</span>
+          <input class="file-input-hidden" type="file" id="file-${p.key}" accept="image/jpeg,image/png,image/webp" onchange="handleArtworkUpload('${p.key}', this)" />
+          <label class="btn-choose-update" for="file-${p.key}">Upload replacement image</label>
+          <span class="file-name-label" id="fname-${p.key}">${customArtwork ? '✓ Custom image set' : 'JPG, PNG or WebP · up to 12 MB'}</span>
         </div>
-        <button class="btn-choose-update" onclick="document.getElementById('file-${p.key}').click()">
-          Upload Custom Image &amp; Update
-        </button>
         ${customArtwork ? `<button class="btn-secondary btn-sm" style="width:100%;margin-top:6px;" onclick="clearArtwork('${p.key}')">Reset to Standard Image</button>` : ''}
       </div>
     </div>`;
@@ -581,17 +578,86 @@ function renderPageArtwork() {
   </div>`;
 }
 
-function handleArtworkUpload(key, input) {
+function readBlobAsDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('The image could not be read.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function loadArtworkImage(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Please choose a valid image file.'));
+    };
+    image.src = objectUrl;
+  });
+}
+
+// Artwork is kept in the shared Supabase JSON workspace. Optimising it before
+// saving prevents large phone photos and screenshots from exceeding request or
+// local-storage limits, while retaining enough resolution for the PDF spread.
+async function optimiseArtworkForStorage(file) {
+  const image = await loadArtworkImage(file);
+  const maxWidth = 1500;
+  const maxHeight = 1150;
+  const ratio = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  const makeBlob = quality => new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not optimise this image.')), 'image/jpeg', quality);
+  });
+
+  let blob;
+  for (const quality of [0.84, 0.72, 0.60]) {
+    blob = await makeBlob(quality);
+    if (blob.size <= 800000) break;
+  }
+  return readBlobAsDataUrl(blob);
+}
+
+async function handleArtworkUpload(key, input) {
   const file = input.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    state.artworks[key] = e.target.result;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    showToast('Please upload a JPG, PNG or WebP image.', 'error');
+    input.value = '';
+    return;
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    showToast('Please choose an image smaller than 12 MB.', 'error');
+    input.value = '';
+    return;
+  }
+
+  const label = document.getElementById(`fname-${key}`);
+  if (label) label.textContent = 'Optimising image…';
+  try {
+    state.artworks[key] = await optimiseArtworkForStorage(file);
     saveState();
-    showToast('Artwork updated!', 'success');
+    showToast('Artwork updated and saved!', 'success');
     render();
-  };
-  reader.readAsDataURL(file);
+  } catch (error) {
+    console.error('Artwork upload failed:', error);
+    showToast(error.message || 'Artwork upload failed. Please try another image.', 'error');
+  } finally {
+    input.value = '';
+  }
 }
 
 function clearArtwork(key) {
